@@ -1,0 +1,734 @@
+;Proyecto de ensamblador (Filtro)
+;Alberto Doncel Aparicio y160364 53715278C
+
+;cmp --> r4
+;direcciones totales 262145 (0-3ffff)
+;puntero pila --> 36848
+
+;Programa:
+                    org         0  ; empezamos a escribir desde la direccion 0 (para colocar nF)
+nF:                 data 0x00000000; inicializamos NF a 0
+
+;MACROS:
+                    org 100
+
+LEA:                MACRO(ra,etiq)
+                    or ra,r0,low(etiq)
+                    or.u ra,ra,high(etiq)
+                    ENDMACRO
+
+LOAD:               MACRO(ra,etiq)
+                    LEA(ra,etiq)
+                    ld ra,ra,0
+                    ENDMACRO
+
+DBNZ:               MACRO(ra,etiq)
+                    sub ra,ra,1
+                    cmp r4,ra,r0
+                    bb0 eq,r4,etiq
+                    ENDMACRO
+
+SWAP:               MACRO(ra,rb)
+                    or r1, ra,ra
+                    or ra,rb,rb
+                    or rb,r1,r1
+                    ENDMACRO
+
+PUSH:               MACRO(ra)
+                    sub r30,r30,4
+                    st ra,r30,0
+                    ENDMACRO
+
+POP:                MACRO(ra)
+                    ld  ra, r30,0
+                    add r30,r30,4
+                    ENDMACRO
+              
+                    org 500
+
+nFiltrados:         ld r6, r30, 0     ;r6-->oper
+                    cmp r4, r6, r0   
+                    bb0 lt, r4, FINNF;
+                    LOAD(r6,nF)       ;nf-->r6
+                    sub r6, r6, 1     ;r6-1-->r6
+                    cmp r4, r6, r0    
+                    bb0 lt, r4, FINNF
+                    xor r6, r6, r6            
+        FINNF:      LEA(r7,nF)      ;direccion nF-->r7
+                    st  r6, r7, 0   ;r6-->nF
+                    or  r29, r6, 0 
+                    jmp(r1)
+
+                    org 1000
+
+ActualizaFiltro:    ld r12, r30,0   ;r12-->dir MFiltro
+                    ld r7, r30,4    ;r7-->dir ModMiltro
+                    ld r10, r7,0    ;r10--> numerador dupla ModMFiltro
+                    ld r11, r7,4    ;r11--> denominador dupla ModMFiltro
+                    cmp r4, r10, r0 ;if(numerador==0) end;
+                    bb1 eq, r4,FINAF; 
+                    cmp r4, r11, r0 ;if(denominador==0) end;
+                    bb1 eq,r4,FINAF ;
+                    or r8,r0,9      ;r8-->9
+        BUCLEAF:    ld r9, r12,0    ;r9--> dato MFiltro
+                    muls r9, r9,r10 ;dato*numerador
+                    divs r9, r9,r11 ;dato/denominador
+                    st   r9, r12, 0 ;MFiltro[i]-->r9
+                    addu r12,r12,4  ;puntero Mfiltro++ 
+                    DBNZ(r8,BUCLEAF)
+        FINAF:      jmp(r1)  
+
+                    org 1500
+
+Comp:               ld r15, r30,0     ;r15-->dir IMAGEN1
+                    ld r7, r30,4      ;r7-->dir IMAGEN2
+                    xor r8, r8, r8    ;Dif(r8)-->0
+                    ld r9,r15,0       ;M-->r9
+                    ld r10, r15,4     ;N-->r10
+                    muls r11,r10,r9   ;MxN-->r11
+                    add r15, r15, 8   ;posicionamos el puntero de la primera imagen en el primer bit
+                    add r7, r7, 8     ;idem
+        SFILD:      ld r10,r30, 0     ;N-->r10                        
+                    ld r10,r10 ,4     ;repetimos unicamente debido al bucle
+        SCOLD:      ld.b r12,r15,0    ;r12--> 1erbit IMAGEN1
+                    ld.b r13,r7,0     ;r13--> 1erbit IMAGEN2
+                    sub r14, r12,r13  ;r14--> r12-13
+                    muls r14, r14,r14 ;r14-->(r14)^2
+                    add r8, r8,r14    ;Dif = Dif + (Imagen1ij – Imagen2ij)^2
+                    add r15, r15, 1   ;sgte entero IMAGEN1
+                    add r7, r7, 1     ;sgte entero IMAGEN2
+                    DBNZ(r10,SCOLD)
+                    DBNZ(r9, SFILD)
+                    divs r8, r8, r11  ;r8=Dif/MxN
+                    or   r29,r8, r0
+                    jmp(r1)
+
+                    org 2000
+
+ValorPixel:         ld r6, r30, 0     ;r6-->dirr SubImg1
+                    ld r7, r30, 4     ;r7-->dirr MFiltro
+                    xor r8, r8, r8    ;ACC-->0
+                    xor r14, r14, r14 ;r14-->r0
+                    or r12, r0, 9     ;r12-->9(contador del bucle)
+        BUCLEVP:    ld.bu r9, r6 , 0   ;r9-->primer elemento de SubImg1
+                    ld r10, r7, 0     ;r10-->primer elemento de MFiltro
+                    add r11,r9,0      ;r11-->primer elemento de SubImg1 sin signo
+                    muls r11,r11,r10  ;r11-->r11 x r10
+                    add r8, r8 ,r11   ;ACC-->ACC+r11
+                    add r6, r6, 1     ;avanzamos puntero SubImg1
+                    add r7, r7, 4     ;avanzamos puntero MFiltro
+                    DBNZ(r12,BUCLEVP) ;contador-- y si no 0 vamos a BUCLEVP
+                    or r29, r8, r8    ;r29-->ACC
+                    jmp(r1)
+
+                    org 2500
+
+SubMatriz:          ld r6, r30, 0     ;r6-->dirr Imagen
+                    ld r7, r30, 4     ;r7-->dirr SubImg
+                    ld r8, r30, 8     ;r8-->i
+                    ld r9, r30, 12    ;r9-->j
+                    ld r10,r6,  0     ;M-->r10
+                    ld r11,r6,  4     ;N-->r11
+                    add r6, r6, 8     ;posicionamos el puntero de la primera imagen en el primer bit
+                    cmp r4, r8, r0    ;si i==0 saltamos
+                    bb1 eq, r4, BORDE
+                    cmp r4, r9, r0    ;si j==0 saltamos
+                    bb1 eq, r4, BORDE
+                    sub r16, r10,1 
+                    cmp r4, r8, r16   ;si i==M-1 saltamos
+                    bb1 eq, r4, BORDE  
+                    sub r16, r11,1   
+                    cmp r4, r9, r16   ;si j==M-1 saltamos
+                    bb1 eq, r4, BORDE
+                    muls r8, r8, r11  ;r8-->i*NumColumnas(N)   (desp de filas)
+                    add  r8, r8, r9   ;r8-->desplazamiento hasta byte i,j (desp de filas + desp en esa fila)
+                    add  r6, r6, r8   ;r6-->dirr byte i,j
+                    add  r13,r6, r11  ;r13-->byte de debajo de i,j (pos actual + num col) (i+1,j)
+                    sub  r12,r6, r11  ;r12-->dirr byte de encima de i,j (pos actual - num col)  (i-1,j)                   
+                    sub  r6, r6, 1    ;r6-->dirr byte anterior de i,j       (i,j-1) 
+                    sub  r13,r13,1    ;r13-->dirr anterior al byte descrito (i+1,j-1)
+                    sub  r12,r12,1    ;r12-->dirr anterior al byte descrito (i-1,j-1)
+                    ld.b r14,r12, 0   ;r14-->byte (i-1,j-1)     
+                    st.b r14, r7 ,0   ;metemos byte (0,0) 
+                    add  r7, r7,  1   ;av puntero            
+                    add  r12,r12, 1   ;av pixel im
+                    ld.b r14,r12, 0   ;r14-->byte (i-1,j)     
+                    st.b r14, r7, 0   ;metemos byte (0,1)
+                    add  r7, r7,  1
+                    add  r12,r12, 1
+                    ld.b r14,r12, 0   ;r14-->byte (i-1,j+1) 
+                    st.b r14, r7, 0   ;metemos byte(0,2)
+                    add  r7, r7,  1
+                    ld.b r14,r6,  0   ;r14-->byte (i,j-1) 
+                    st.b r14, r7, 0   ;metemos byte(1,0)
+                    add  r7, r7,  1
+                    add  r6, r6,  1
+                    ld.b r14,r6,  0   ;r14-->byte (i,j) 
+                    st.b r14, r7, 0   ;metemos byte(1,1)=byte(i,j de la matriz)
+                    add  r7, r7,  1
+                    add  r6, r6,  1
+                    ld.b r14,r6,  0   ;r14-->byte (i,j+1) 
+                    st.b r14, r7, 0   ;metemos byte(1,2)
+                    add  r7, r7,  1
+                    ld.b r14,r13, 0   ;r14-->byte (i+1,j-1) 
+                    st.b r14, r7, 0   ;metemos byte(2,0)
+                    add  r7, r7,  1
+                    add  r13,r13, 1
+                    ld.b r14,r13, 0   ;r14-->byte (i+1,j) 
+                    st.b r14, r7, 0   ;metemos byte(2,1)
+                    add  r7, r7,  1
+                    add  r13,r13, 1
+                    ld.b r14,r13, 0   ;r14-->byte (i+1,j+1) 
+                    st.b r14, r7, 0   ;metemos byte(2,2)
+                    jmp(r1)
+        BORDE:      or   r15,r0,  9
+                    muls r8, r8, r11  ;r8-->i*NumColumnas(N) (desp de filas)
+                    add r8, r8,  r9   ;r8-->r8+j (desp de filas + desp en esa fila)
+                    add  r6, r6, r8   ;r6-->dirr byte i,j
+                    ld.b r6, r6, 0    ;r6-->byte i,j
+        BUCLESM:    st.b r6, r7,0     ;metemos byte (0,0) 
+                    add  r7, r7, 1    ;av punt
+                    DBNZ(r15,BUCLESM) ;contador-- y si no 0 vamos a BUCLESM
+                    jmp(r1)
+
+                    org 3500
+
+FilPixel:           PUSH(r1)         ;Guarda la direccion de retorno
+                    PUSH(r31)        ;Guarda el puntero al marco de pila llamante
+                    or r31, r30, r0  ;Crea el nuevo marco de pila a partir de SP (r30)
+                    sub r30, r30, 12 ;Reserva espacio para SubMatriz
+                    or r9, r30,r0    ;Guardamos direccion de la SubMatriz (=r31-12)
+                    ld r6, r31,8     ;Guardamos en r24 dirr IMAGEN
+                    ld r7, r31,12    ;Guardamos en r25 i
+                    ld r8, r31,16    ;Guardamos en r26 j
+                    PUSH(r8)         ;4to parametro de Submatriz = j
+                    PUSH(r7)         ;3er parametro de Submatriz = i
+                    PUSH(r9)         ;2ndo parametro de Submatriz = dirr Submatriz
+                    PUSH(r6)         ;1er parametro de Submatriz = dirr de Imagen
+                    bsr SubMatriz
+                    add r30,r30,16   ;equivalente en este caso a = POP(r6)&POP(r5)&POP(r7)&POP(r8)
+                    or r9, r30,r0    ;Guardamos direccion de la SubMatriz (=r31-12)
+                    ld r6, r31,20    ;r6-->dirr MFiltro
+                    PUSH (r6)        ;2ndo parametro ValorPixel = MFiltro
+                    PUSH (r9)        ;1er parametro ValorPixel = SubImg
+                    bsr ValorPixel
+                    add r30, r30,8   ;equiv a POP(r9)&POP(r6)
+                    ld r6, r31,20    ;r6-->dirr MFiltro
+                    xor r8, r8, r8   ;r8-->0 (contador peso total)
+                    or  r9, r0, 9    ;r9-->9 (posiciones de MFiltro)
+        BUCLEFP:    ld r7,r6,0       ;r7-->MFiltro(i,j)
+                    add r8,r8,r7     ;r8-->peso parcial
+                    add r6,r6,4      ;av puntero MFiltro
+                    DBNZ(r9,BUCLEFP)
+                    cmp r4, r8, 0    ;si peso=0 no se divide r29
+                    bb1 eq, r4, NODIVFP
+                    divs r29, r29, r8;dividimos r29
+        NODIVFP:    cmp r4, r29, 0   ;si r29<0 ajustamos a 0
+                    bb1 lt, r4, AJUSTE0
+                    cmp r4, r29, 255 ;si r29>255 ajustamos a 255
+                    bb1 gt, r4, AJUSTE255
+        FINFP:      or r30, r31, r0   ;Restaura el puntero de pila al valor del puntero de marco
+                    POP(r31)
+                    POP(r1)
+                    jmp(r1)
+        AJUSTE0:    xor r29, r29, r29
+                    br FINFP
+        AJUSTE255:  or r29, r0, 255
+                    br FINFP
+
+                    org 4000
+
+Filtro:             PUSH(r1)            ;Guarda la direccion de retorno
+                    PUSH(r31)           ;Guarda el puntero al marco de pila llamante
+                    or r31, r30, r0     ;Crea el nuevo marco de pila a partir de SP (r30)
+                    ld r19, r30,8       ;r19->dirr img a filtrar
+                    ld r20, r30,12      ;r20->dirr img filtrada | ahorramos->ld r21, r30,8 r21->dirr filtro
+                    ld r21, r19,0       ;r21->M 
+                    st r21, r20,0       ;M de img a filtrar a M img filtrada                    
+                    add r19, r19, 4     ;Apuntamos a N de img a filtrar
+                    ld r19, r19, 0      ;r19->N
+                    st r19, r20, 4      ;N de img a filtrar a N img filtrada
+                    add r20,r20,8       ;r20->dirr 1er pixel img filtrada
+                    xor r17, r17,r17    ;r17->i=0
+        BUCLEFILi:  ld r19,r31,8        ;r19->dirr img a filtrar 
+                    ld r19,r19,4        ;r19->N
+                    xor r18, r18,r18    ;r18->j=0
+        BUCLEFILj:  ld r6,r31,8         ;r6->dirr img a filtrar
+                    ld r9, r31, 16      ;r9->dir filtro ahorramos hacer antes:ld r21, r30,8 ;r21->dirr filtro
+                    PUSH(r21)           ;salvamos valor M
+                    PUSH(r20)           ;salvamos valor punt a img 
+                    PUSH(r19)           ;salvamos valor N
+                    PUSH(r9)            ;4to parametro MFiltro
+                    PUSH(r18)           ;3er parametro j
+                    PUSH(r17)           ;2ndo parametro i
+                    PUSH(r6)            ;1er param img a filtrar
+                    bsr FilPixel
+                    POP(r6)             ;recuperamos todo lo salvado antes de la llamada
+                    POP(r17)
+                    POP(r18)
+                    POP(r9)
+                    POP(r19)
+                    POP(r20)
+                    POP(r21)           
+                    st.b r29, r20,0     ;guardamos el valor resultante en la posicion correspondiente de img filtrada
+                    add r20,r20,1       ;av punt img a filtrar
+                    add r18,r18,1       ;j++
+                    DBNZ(r19,BUCLEFILj) ;N--
+                    add r17,r17,1       ;i++
+                    DBNZ(r21,BUCLEFILi) ;M-- y N=Noriginal
+                    or r30, r31, r0     ;Restaura el puntero de pila al valor del puntero de marco
+                    POP(r31)
+                    POP(r1)
+                    jmp(r1)
+                
+                    org 4500
+
+FiltRec:            PUSH(r1)            ;Guarda la direccion de retorno
+                    PUSH(r31)           ;Guarda el puntero al marco de pila llamante
+                    or r31, r30, r0     ;Crea el nuevo marco de pila a partir de SP (r30)
+                    ld r22, r31, 8      ;dirr ImgIn-->r22
+                    ld r23, r22, 4      ;M->r23
+                    ld r22, r22, 0      ;N->r22
+                    muls r22, r22, r23  ;MxN->r22
+                    add r22, r22, 7     ;MxN + 4 + 3 ->r22(espacio a reservar para ImgTemp)
+                    or r6, r0, 4
+        BUCLEMUL4:  add r22, r22, 1     ;el 1 que falta que lo separamos para facilitar la comprension del codigo del bucle
+                    divs r23, r22, r6    
+                    muls r23, r23, r6    
+                    cmp r4, r22, r23
+                    bb0 eq, r4, BUCLEMUL4
+                    sub r30, r30, r22   ;reservamos espacio para ImgTemp
+                    PUSH(r22)           ;r30->r22
+                    ld r6, r31, 8       ;dirr ImgIn->r6
+                    ld r7, r31, 12      ;dirr ImgOut->r7
+                    ld r8, r31, 16      ;dirr MFiltro->r8
+                    PUSH(r8)
+                    PUSH(r7)
+                    PUSH(r6)
+                    bsr Filtro          ;Filtramos la imagen
+                    add r30, r30, 12    ;r30-(apunta)->r22
+                    ld r6, r31, 16      ;r6->dirr MFiltro
+                    ld r7, r31, 20      ;r7->dirr ModMFiltro
+                    PUSH(r7)
+                    PUSH(r6)
+                    bsr ActualizaFiltro
+                    add r30, r30, 8     ;r30-(apunta)->r22
+                    POP(r22)            ;r30-->ImgTemp
+                    or r6, r30 ,0       ;r6-> dirreccion del primer bit de la img tmp
+                    ld r7, r31 ,12      ;copiamos dirr 1er bit de img filtrada
+        BUCLECOPIA: ld.b r8, r7, 0      ;r8->bit img filtrada
+                    st.b r8, r6, 0      ;bit img filtrada->bit imgTemp 
+                    addu r6, r6, 1      ;av punteros
+                    addu r7, r7, 1
+                    DBNZ(r22,BUCLECOPIA)
+                    sub r6, r0, 1       ;r6->-1
+                    PUSH(r6)
+                    bsr nFiltrados      ;nFiltrados(-1)
+                    add r30, r30, 4
+                    cmp r4, r29, r0     ;si r29==0 retornamos al llamante
+                    bb1 eq, r4, FINFR29 ;hay que asignar -1 a r29
+                    ld r6, r31, 8       ;r6->dirr ImgIn
+                    ld r7, r31, 12      ;r7->dirr ImgOut
+                    PUSH(r7)
+                    PUSH(r6)
+                    bsr Comp
+                    add r30, r30, 8     ;r30-(apunta)->ImgTemp
+                    ld r9, r31, 24      ;r9->NCambios (valor)
+                    cmp r4, r29, r9     ;si r29<Ncambios acabamos
+                    bb1 lt, r4, FINFR 
+                    or r6, r30, 0       ;r6->dirr ImgTemp
+                    ld r7, r31, 12      ;r7->dirr ImgOut
+                    ld r8, r31, 16      ;r8->dirr MFiltro
+                    ld r9, r31, 20      ;r9->dirr ModMFiltro
+                    ld r10,r31, 24      ;r10->Difencia nueva (NCambios)
+                    PUSH(r10)
+                    PUSH(r9)
+                    PUSH(r8)
+                    PUSH(r7)
+                    PUSH(r6)
+                    bsr FiltRec
+        FINFR:      or r30, r31, r0     ;Restaura el puntero de pila al valor del puntero de marco
+                    POP(r31)
+                    POP(r1)
+                    jmp(r1)
+        FINFR29:    sub r29, r0, 1
+                    br FINFR
+;Pruebas:
+                
+                    org 10000
+
+oper:               data 0x00000004
+
+oper2:              data 0x00000000
+
+oper3:              data 0xFFFFFFFF
+
+PPAL1:              or r30, r0, 36848  ;inicializamos puntero de pila
+                    LOAD(r5,oper)             
+                    PUSH(r5)
+                    bsr nFiltrados      ;usamos r6, r7 y r29
+                    POP(r5)
+                    stop
+
+                    org 10500
+
+MFiltro:            data 1,1,1
+                    data 1,0,1
+                    data 1,1,1
+ModMFiltro:         data 2 , 4 ;numerador , denominador
+
+MFiltro2:           data 1,1,1
+                    data 1,0,1
+                    data 1,1,1
+ModMFiltro2:        data 4 , 2 ;numerador , denominador
+
+MFiltro3:           data 4,4,4
+                    data 4,0,4
+                    data 4,4,4
+ModMFiltro3:        data 1 , 2 ;numerador , denominador
+
+                    org 11000
+
+PPAL2:              or r30, r0, 36848
+                    LEA(r5,MFiltro)
+                    LEA(r6,ModMFiltro)
+                    PUSH(r6)
+                    PUSH(r5)
+                    bsr ActualizaFiltro ;usa de r6 a r12 (dev en r29)
+                    POP(r5)
+                    POP(r6)
+                    stop       
+
+IMAGEN1:            data 4, 8
+                    data 0xFF0201FF, 0xFF0403FF
+                    data 0xFF0506FF, 0xFF0708FF
+                    data 0xFF0506FF, 0xFF0708FF
+                    data 0xFF0201FF, 0xFF0403FF
+
+IMAGEN2:            data 4, 8
+                    data 0xFA0201FA, 0xFA0101FA
+                    data 0xFA0501FA, 0xFA0603FA
+                    data 0xFA0902FA, 0xFA0602FA
+                    data 0xFA0403FA, 0xFA0102FA
+
+IMAGEN3:            data 4, 8
+                    data 0xFF0200FF, 0xFF0403FF
+                    data 0xFF0506FF, 0xFF0708FF
+                    data 0xFF0506FF, 0xFF0708FF
+                    data 0xFF0201FF, 0xFF0403FF
+
+                    org 11500
+
+PPAL3:              or r30, r0, 36848
+                    LEA(r5,IMAGEN1)
+                    LEA(r6,IMAGEN2)
+                    PUSH(r6)            ;2ndo parametro dir IMAGEN1
+                    PUSH(r5)            ;1er parametro dir IMAGEN2
+                    bsr Comp            ;usa de r6 a r15 (dev en r29)
+                    POP(r5)
+                    POP(r6)
+                    stop        
+
+SubImg1:            data 0x01020304, 0x05060708, 0x09
+
+SubImg2:            data 0x09030403, 0x00000200, 0x01
+
+SubImg3:            data 0x01030405, 0x00080201, 0x01
+
+SUBIMAGEN:          data 0x03040402, 0x05030101, 0x03
+
+FILTRO1:            data 1, 1, 1
+                    data 1, 0, 1
+                    data 1, 1, 1
+
+                    org 12000
+
+PPAL4:              or r30, r0, 36848
+                    LEA(r5,SUBIMAGEN);
+                    LEA(r6,FILTRO1);
+                    PUSH(r6)            ;2ndo parametro dir MFiltro
+                    PUSH(r5)            ;1er parametro dir SubImg1
+                    bsr ValorPixel      ;usa de r6 a r13 (dev en r29)
+                    POP(r5)
+                    POP(r6)
+                    stop
+
+i1:                 data 0x00000000
+
+j1:                 data 0x00000000
+
+i2:                 data 0x00000001
+
+j2:                 data 0x00000001
+
+i3:                 data 0x00000002
+
+j3:                 data 0x00000002
+
+i4:                 data 0x00000003
+
+j4:                 data 0x00000007
+
+IMAGEN4:            data 3, 3
+                    data 0x40302010, 0x80706050, 0x90
+
+SUBIMAGRES:         data 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF   ;espacio reservado para guardar la subimagen de turno
+
+                    org 12500
+
+PPAL5:              or r30, r0, 36848
+                    LEA(r5,IMAGEN2)
+                    LEA(r6,SUBIMAGRES)
+                    LOAD(r7,i4)
+                    LOAD(r8,j4)
+                    PUSH(r8)            ;4to parametro
+                    PUSH(r7)            ;3r parametro
+                    PUSH(r6)            ;2ndo parametro dir SUBIMAGEN
+                    PUSH(r5)            ;1er parametro dir IMAGEN
+                    bsr SubMatriz       ;usa de r6 a r16 (dev en SUBIMAGEN)
+                    POP(r5)
+                    POP(r6)
+                    POP(r7)
+                    POP(r8)
+                    stop
+
+IMAGENFP:           data 5, 5
+                    data 0x44332211, 0x03020155
+                    data 0x22210504, 0x31252423
+                    data 0x35343332, 0x44434241
+                    data 0x00000045
+
+IMAGENFP2:          data 3, 3
+                    data 0x01010101, 0x01010101, 0x01
+
+FILTROFP:           data 0, 0, 0
+                    data 0, 1, 0
+                    data 0, 0, 0
+
+FILTROFP2:          data 255, 255, 255
+                    data 255, 255, 255
+                    data 255, 255, 255
+
+FILTROFP3:          data 0, 0, 0
+                    data 0, -1,0
+                    data 0, 0, 0
+
+i5:                 data 0x00000002
+
+j5:                 data 0x00000002     
+
+IMAGEN7:            data 4 , 8 
+                    data 0x40414243, 0x44454647
+                    data 0x48494A4B, 0x4C4D4E4F
+                    data 0x40994243, 0x44454647
+                    data 0x48494A4B, 0x4C4D4E4F
+
+FILTRO5:            data 1, 1, 1
+                    data 1, -8, 1
+                    data 1, 1, 1
+
+                    org 13000
+
+PPAL6:              or r30, r0, 36848
+                    LEA(r5,IMAGEN7)
+                    LOAD(r6,i5)
+                    LOAD(r7,j5)
+                    LEA(r8,FILTRO5)
+                    PUSH(r8)            ;4to parametro MFiltro
+                    PUSH(r7)            ;3er parametro j
+                    PUSH(r6)            ;2ndo parametro i
+                    PUSH(r5)            ;1er parametro IMAGEN
+                    bsr FilPixel        ;Usa de r6 a r9 + rSubMatriz + rValorPixel
+                    POP(r5)
+                    POP(r6)
+                    POP(r7)
+                    POP(r8)
+                    stop
+
+IMAGEN5:            data 4, 8
+                    data 0x04030201, 0x07060504
+                    data 0x14134211, 0x17168514
+                    data 0x24232221, 0x27262574
+                    data 0x34333231, 0x37363534
+
+FILTRADA:           res 40
+
+FILTRO2:            data 0, -3, 0
+                    data 0, 4, 0
+                    data 0, 0, 0
+
+IMAGEN6:            data 4, 6 
+                    data 0x12345678, 0xFFFEFDFC, 0x13355779 
+                    data 0xEEEDECEB, 0x23456789, 0xDFDEDDDC
+
+FILTROID:           data 0, 0, 0        ;filtro que no debe modificar la imagen
+                    data 0, 1, 0
+                    data 0, 0, 0
+
+FILTRO4:            data 1, -1, 0
+                    data 0, -3, 0
+                    data 0, 0, -2
+
+                    org 13500
+
+PPAL7:              or r30, r0, 36848
+                    LEA(r5,IMAGEN6)
+                    LEA(r6,FILTRADA)
+                    LEA(r7,FILTRO2)
+                    PUSH(r7)            ;3er parametro (Filtro correspondiente)
+                    PUSH(r6)            ;2ndo parametro (Direccion donde se guarda la imagen filtrada)
+                    PUSH(r5)            ;1er parametro (Imagen a filtrar)
+                    bsr Filtro          ;usa de r6 a r21
+                    POP(r5)
+                    POP(r6)
+                    POP(r7)
+                    stop
+
+                    org 14000
+
+ImgIn:              data 3, 3
+                    data 1, 2, 3
+                    data 4, 5, 6
+                    data 7, 8, 9
+
+ImgOut:             data 3, 3
+                    data 0, 0, 0
+                    data 0, 0, 0        
+                    data 0, 0, 0
+
+NCambios:           data 20
+
+IMAGENPRU:          data 4, 4
+                    data 0x04030201, 0x0D0E0F10, 0x05040302, 0x23222120
+
+DUPLAPRU:           data 1, 1
+
+FILTROPRU:          data 1, 1, 1
+                    data 1, 0, 1
+                    data 1, 1, 1
+
+FILTRADAPRU:        res 24
+                    data 0xAAAAAAAA, 0xAAAAAAAA
+
+NCambiosPRU:        data 40
+                
+                    org 14500
+
+PPAL8:              or r30, r0, 36848
+                    or r31, r30, r30
+                    addu r10, r0, 5 ; max: 5 filtrados
+                    PUSH (r10)
+                    bsr nFiltrados ; inicializa nF
+                    addu r30, r30, 4
+                    LEA (r10, IMAGENPRU)                ;1er param: imagen a filtrar
+                    LEA (r11, FILTRADAPRU)              ;2ndo param: hueco imagen filtrada
+                    LEA (r12, FILTROPRU)                ;3er param: filtro usado
+                    LEA (r13, DUPLAPRU)                 ;4to param: dupla que modifica el filtro n veces
+                    or r14, r0, 40 ; NCambios=40        ;5to param: num cambios aceptables
+                    PUSH (r14) ; NCambios
+                    PUSH (r13) ; DUPLA
+                    PUSH (r12) ; FILTRO
+                    PUSH (r11) ; FILTRADA
+                    PUSH (r10) ; IMAGEN
+                    bsr FiltRec                         ;puede usar desde r22 a r28
+                    addu r30, r30, 20   
+                    stop
+
+IMAGENPRU2:         data 4 ,4
+                    data 0x04030201, 0x0D0E0F10, 0x05040302, 0x23222120
+
+DUPLAPRU2:          data 1, 2
+
+FILTROPRU2:         data 0x0000000A, 0x0000000A, 0x0000000A
+                    data 0x0000000A, 0, 0x0000000A
+                    data 0x0000000A, 0x0000000A, 0x0000000A
+
+FILTRADAPRU2:       res 24
+                    data 0xAAAAAAAA, 0xAAAAAAAA
+
+                    org 15000
+
+PPAL82:             or r30, r0, 36848
+                    or r31, r30, r30
+                    addu r10, r0, 4 ; max: 4 filtrados
+                    PUSH (r10)
+                    bsr nFiltrados ; inicializa nF
+                    addu r30, r30, 4
+                    LEA (r10, IMAGENPRU2)                ;1er param: imagen a filtrar
+                    LEA (r11, FILTRADAPRU2)              ;2ndo param: hueco imagen filtrada
+                    LEA (r12, FILTROPRU2)                ;3er param: filtro usado
+                    LEA (r13, DUPLAPRU2)                 ;4to param: dupla que modifica el filtro n veces
+                    or r14, r0, 0 ; NCambios=0           ;5to param: num cambios aceptables
+                    PUSH (r14) ; NCambios
+                    PUSH (r13) ; DUPLA
+                    PUSH (r12) ; FILTRO
+                    PUSH (r11) ; FILTRADA
+                    PUSH (r10) ; IMAGEN
+                    bsr FiltRec 
+                    stop
+
+IMAGENPRU3:         data 5 ,5
+                    data 0x000A000A, 0x0000000A, 0x000A0000, 0x000A000A, 0x00000000, 0x000A000A, 0x0000000A
+
+DUPLAPRU3:          data 0x0000000A, 9
+
+FILTROPRU3:         data 0x00000000, 0x00000000, 0x00000000
+                    data -2, 2, -2
+                    data 0x00000000, 0x00000000, 0x00000000
+                    
+FILTRADAPRU3:       res 36
+                    data 0xAAAAAAAA, 0xAAAAAAAA
+
+                    org 15500
+
+PPAL83:             or r30, r0, 36848
+                    or r31, r30, r30
+                    addu r10, r0, 10                      ;max: 4 filtrados
+                    PUSH (r10)
+                    bsr nFiltrados ; inicializa nF
+                    addu r30, r30, 4
+                    LEA (r10, IMAGENPRU3)                ;1er param: imagen a filtrar
+                    LEA (r11, FILTRADAPRU3)              ;2ndo param: hueco imagen filtrada
+                    LEA (r12, FILTROPRU3)                ;3er param: filtro usado
+                    LEA (r13, DUPLAPRU3)                 ;4to param: dupla que modifica el filtro n veces
+                    or r14, r0, 1 ; NCambios=1           ;5to param: num cambios aceptables
+                    PUSH (r14) ; NCambios
+                    PUSH (r13) ; DUPLA
+                    PUSH (r12) ; FILTRO
+                    PUSH (r11) ; FILTRADA
+                    PUSH (r10) ; IMAGEN
+                    bsr FiltRec 
+                    stop
+
+IMAGENPRU4:         data 5 ,5
+                    data 0x000A000A, 0x0000000A, 0x000A0000, 0x000A000A, 0x00000000, 0x000A000A, 0x0000000A
+
+DUPLAPRU4:          data 9, 0x0000000A
+
+FILTROPRU4:         data 0x00000000, 0x00000014, 0x00000000
+                    data 0x00000014, 0, 0x00000014
+                    data 0x00000000, 0x00000014, 0x00000000
+                    
+FILTRADAPRU4:       res 36
+                    data 0xAAAAAAAA, 0xAAAAAAAA
+
+                    org 16000
+
+PPAL84:             or r30, r0, 36848
+                    or r31, r30, r30
+                    addu r10, r0, 5                      ;max: 4 filtrados
+                    PUSH (r10)
+                    bsr nFiltrados ; inicializa nF
+                    addu r30, r30, 4
+                    LEA (r10, IMAGENPRU4)                ;1er param: imagen a filtrar
+                    LEA (r11, FILTRADAPRU4)              ;2ndo param: hueco imagen filtrada
+                    LEA (r12, FILTROPRU4)                ;3er param: filtro usado
+                    LEA (r13, DUPLAPRU4)                 ;4to param: dupla que modifica el filtro n veces
+                    or r14, r0, 1 ; NCambios=1           ;5to param: num cambios aceptables
+                    PUSH (r14) ; NCambios
+                    PUSH (r13) ; DUPLA
+                    PUSH (r12) ; FILTRO
+                    PUSH (r11) ; FILTRADA
+                    PUSH (r10) ; IMAGEN
+                    bsr FiltRec 
+                    stop
